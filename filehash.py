@@ -1,4 +1,5 @@
-__author__ = 'Liteman'
+# Code used in GMU course CFRS780
+# Code provided by TKhan
 
 
 import hashlib 		#This imports the hashing functions
