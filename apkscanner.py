@@ -12,6 +12,7 @@ import platform     #https://docs.python.org/2/library/platform.html
 import configparser #https://docs.python.org/2/library/configparser.html
 import argparse     #http://docs.python.org/3.4/library/argparse.html
 import re
+import socket
 
 
 #Global Values
@@ -48,6 +49,14 @@ def findURLs():
                             lineCnt += 1
                     f.close()
 
+def valid_ip(address):
+    try:
+        socket.inet_aton(address)
+        return True
+    except:
+        return False
+
+
 def findIPs():
     global cfgfile
     global target
@@ -68,7 +77,7 @@ def findIPs():
                         for line in f.readlines():
                             #print(line)
                             match = re.search(pattern, str(line))
-                            if(match):
+                            if(match) and valid_ip(match.group()):
                                 #print(f.name + ": Line " + str(lineCnt) + ", Offset " + str(match.start()) + ": " + match.group())
                                 dest.write(f.name + ": Line " + str(lineCnt) + ", Offset " + str(match.start()) + ": " + match.group()+"\r\n")
                             lineCnt += 1
