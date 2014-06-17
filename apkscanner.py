@@ -11,6 +11,7 @@ import os
 import platform     #https://docs.python.org/2/library/platform.html
 import configparser #https://docs.python.org/2/library/configparser.html
 import argparse     #http://docs.python.org/3.4/library/argparse.html
+import re
 
 
 #Global Values
@@ -20,6 +21,58 @@ outpath = ""  #set by config.ini or command-line argument
 target = ""   #set by config.ini or command-line argument
 system = platform.platform()
 architecture = platform.architecture()[0]
+
+def findURLs():
+    global cfgfile
+    global target
+
+    print("Find URL Flag Set: Searching..\n\n")
+
+    config = parseConfig()
+    with open(os.path.join(outpath,'URLsearch.txt'), 'w') as dest:
+        for key in config['SearchesRegex-URL']:
+            pattern = config.get('SearchesRegex-URL', key)[1:-1]
+            print("\nUsing Pattern: " + key + ": " + pattern + "\n")
+            dest.write("\nPattern: " + key + ": " + pattern + "\n\n")
+            for root, subs, files in os.walk(target):
+                for file in files:
+                    lineCnt = 1
+                    print("Reading file: " + os.path.join(root,file))
+                    with open(os.path.join(root,file), 'rb') as f:
+                        for line in f.readlines():
+                            #print(line)
+                            match = re.search(pattern, str(line))
+                            if(match):
+                                #print(f.name + ": Line " + str(lineCnt) + ", Offset " + str(match.start()) + ": " + match.group())
+                                dest.write(f.name + ": Line " + str(lineCnt) + ", Offset " + str(match.start()) + ": " + match.group()+"\r\n")
+                            lineCnt += 1
+                    f.close()
+
+def findIPs():
+    global cfgfile
+    global target
+
+    print("Find IP Flag Set: Searching..\n\n")
+
+    config = parseConfig()
+    with open(os.path.join(outpath,'IPsearch.txt'), 'w') as dest:
+        for key in config['SearchesRegex-IP']:
+            pattern = config.get('SearchesRegex-IP', key)[1:-1]
+            print("\nUsing Pattern: " + key + ": " + pattern + "\n")
+            dest.write("\nPattern: " + key + ": " + pattern + "\n\n")
+            for root, subs, files in os.walk(target):
+                for file in files:
+                    lineCnt = 1
+                    print("Reading file: " + os.path.join(root,file))
+                    with open(os.path.join(root,file), 'rb') as f:
+                        for line in f.readlines():
+                            #print(line)
+                            match = re.search(pattern, str(line))
+                            if(match):
+                                #print(f.name + ": Line " + str(lineCnt) + ", Offset " + str(match.start()) + ": " + match.group())
+                                dest.write(f.name + ": Line " + str(lineCnt) + ", Offset " + str(match.start()) + ": " + match.group()+"\r\n")
+                            lineCnt += 1
+                    f.close()
 
 
 def query_yes_no(question, default="yes"): #code from http://stackoverflow.com/questions/3041986/python-command-line-yes-no-input
@@ -151,7 +204,6 @@ def folderCheck():
             print("Output directory changed to: " + outpath)
             print()
 
-
     if target == "":
         if 'Windows' in system:
             value = config.get('Windows-Settings', 'target')
@@ -164,7 +216,6 @@ def folderCheck():
         change = query_yes_no("Target directory set to: \"" + target + "\" Do you wish to change it?", "no")
         if (change):
             target = input("Enter a new target directory: ")
-
 
     #if outpath does not exist, create it?
     if not path.exists(outpath):
@@ -191,20 +242,8 @@ def folderCheck():
         print("User does not wish to proceed. Exiting...")
         sys.exit(1)
 
-
-
-
-
-
-
-
-
-
-
-
 #Parse the command line arguments.
 def main(argv):
-
 
     global debug
     global cfgfile
@@ -216,6 +255,8 @@ def main(argv):
     parser.add_argument('-f', '--file', help='The file that contains configuration settings', required=False)
     parser.add_argument('-o', '--output', help='The location to save output file', required=False)
     parser.add_argument('-t', '--target', help='The unpacked apk directory to scan', required=False)
+    parser.add_argument('-i', '--findip', help='Search for IP Addresses in target files', action='store_true', required=False)
+    parser.add_argument('-u', '--findurl', help='Search for URLs in target files', action='store_true', required=False)
     parser.add_argument('-v', '--verbose', help='The level of debugging.', type=int, required=False)
     parser.add_argument('--showconfig', help='Print contents of config.ini', action='store_true', required=False)
     parser.add_argument('--version', action='version', version='%(prog)s 0.5')
@@ -260,7 +301,11 @@ def main(argv):
 
     folderCheck()
 
+    #Commence searching
+    if args.findip:
+        findIPs()
 
-
+    if args.findurl:
+        findURLs()
 
 main(sys.argv[1:])
