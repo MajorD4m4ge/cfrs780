@@ -49,13 +49,12 @@ def findURLs():
                             lineCnt += 1
                     f.close()
 
-def valid_ip(address):
+def valid_ip(address): #http://stackoverflow.com/questions/11264005/using-a-regex-to-match-ip-addresses-in-python
     try:
         socket.inet_aton(address)
         return True
     except:
         return False
-
 
 def findIPs():
     global cfgfile
