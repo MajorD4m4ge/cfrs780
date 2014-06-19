@@ -316,17 +316,17 @@ def main(argv):
     global target
     verbose = 0
 
-    parser = argparse.ArgumentParser(description="Check whether required programs and modules exist.", add_help=True)
-    parser.add_argument('-c', '--config', help='The file that contains configuration settings', required=False)
-    parser.add_argument('-f', '--apk', help='Specify an apk file to unpack and search', required=False)
+    parser = argparse.ArgumentParser(description="", add_help=True)
+    parser.add_argument('-c', '--config', help='The file that contains configuration settings', metavar='file', required=False)
+    parser.add_argument('-f', '--apk', help='Specify an apk file to unpack and search', metavar='file', required=False)
     parser.add_argument('-b', '--usebulk', help='Use Bulk_Extractor to perform scans (Cannot be used with -i or -u', action='store_true', required=False)
-    parser.add_argument('-o', '--output', help='The location to save output file', required=False)
-    parser.add_argument('-t', '--target', help='The unpacked apk directory to scan. if -f is used, the apk will be unpacked here', required=False)
+    parser.add_argument('-o', '--output', help='The location to save output file', metavar='dir', required=False)
+    parser.add_argument('-t', '--target', help='The unpacked apk directory to scan. if -f is used, the apk will be unpacked here', metavar='dir', required=False)
     parser.add_argument('-i', '--findip', help='Search for IP Addresses in target files', action='store_true', required=False)
     parser.add_argument('-u', '--findurl', help='Search for URLs in target files', action='store_true', required=False)
     parser.add_argument('-v', '--verbose', help='The level of debugging.', type=int, required=False)
     parser.add_argument('--showconfig', help='Print contents of config.ini', action='store_true', required=False)
-    parser.add_argument('--version', action='version', version='%(prog)s 0.5')
+    parser.add_argument('--version', action='version', version='%(prog)s 0.8')
 
     args = parser.parse_args()
     if args.config:
