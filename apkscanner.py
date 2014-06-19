@@ -46,7 +46,7 @@ def unzip(apkfile):
     with zipfile.ZipFile(apkfile) as zf:
         zf.extractall(target)
 
-    print("[+} Unzip complete.")
+    print("[+] Unzip complete.")
 
 
 def bulkScan(verbose):
@@ -374,11 +374,13 @@ def main(argv):
     #If bulk extractor is used, send True to folderCheck()
     if args.apk:
         #update outpath and target
+        print()
         print("[+] APK Specified. Unzipping...")
         unzip(args.apk)
 
 
     if args.usebulk:
+        print()
         bulkScan(verbose)
 
     if args.findip:
