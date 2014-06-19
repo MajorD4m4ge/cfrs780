@@ -1,9 +1,10 @@
 __author__ = 'Liteman'
 
 #Original Code provided by TKhan in GMU CFRS780 course
-#Code customized with error-checking and additional arguments
+#Code customized and extended with error-checking and additional arguments
 #Checks for existence of dependencies (executable files, Python modules).
 #Returns True if all dependencies are present; otherwise, returns False and prints missing files.
+
 
 import sys
 from os import path
@@ -13,6 +14,8 @@ import configparser #https://docs.python.org/2/library/configparser.html
 import argparse     #http://docs.python.org/3.4/library/argparse.html
 import re
 import socket
+import subprocess
+import zipfile
 
 
 #Global Values
@@ -22,6 +25,55 @@ outpath = ""  #set by config.ini or command-line argument
 target = ""   #set by config.ini or command-line argument
 system = platform.platform()
 architecture = platform.architecture()[0]
+
+def unzip(apkfile):
+    global outpath
+    global target
+
+    #does the apk file exist? If so, append the file name to the end of outpath and target
+    if not os.path.exists(apkfile):
+        print("Cannot find the APK file specified: \n" + apkfile)
+        print("Exiting...")
+        sys.exit(1)
+    else:
+        target = os.path.join(target, apkfile.split("\\")[-1])
+        target = target.replace(".", "-")
+        print("\t[+] Updated Target Path: " + target)
+        outpath = os.path.join(outpath, apkfile.split("\\")[-1])
+        outpath = outpath.replace(".", "-")
+        print("\t[+] Updated Report Path: " + outpath)
+
+    with zipfile.ZipFile(apkfile) as zf:
+        zf.extractall(target)
+
+    print("[+} Unzip complete.")
+
+
+def bulkScan(verbose):
+    global outpath
+    global target
+    global system
+
+    config = parseConfig()
+
+    if 'Windows' in system:
+        bulkcmd = config.get('Windows-Tools', '32_bulk')
+    if 'Linux' in system:
+        bulkcmd = config.get('Linux-Tools', '32_bulk')
+
+    bulkcmd = "\"" + bulkcmd + "\"" + " -o " + outpath + " -R " + target
+
+    print("[+] Running Bulk Extractor...")
+    try:
+        output = subprocess.Popen(bulkcmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if(verbose > 0):
+            for line in output.stdout.readlines():
+                print(line.decode("ASCII").rstrip())
+
+    except:
+        print("There was a problem with bulk_extractor.")
+
+    print("[+] Bulk Extractor Completed")
 
 def findURLs():
     global cfgfile
@@ -190,7 +242,7 @@ def printConfig(file):
         print(line.decode('ASCII').rstrip())
     f.close()
 
-def folderCheck():
+def folderCheck(bulk=False):
     global outpath
     global target
 
@@ -226,17 +278,19 @@ def folderCheck():
             target = input("Enter a new target directory: ")
 
     #if outpath does not exist, create it?
-    if not path.exists(outpath):
-        create = query_yes_no("The specified Output Directory does not exist. \nDo you wish to create it?")
-        if (create):
-            try:
-                os.mkdir(outpath)
-            except:
-                print("Unable to create the output directory. Exiting...")
+    #if bulk_extractor is used, do not create the output directory -- Bulk Extractor will create it
+    if not bulk:
+        if not path.exists(outpath):
+            create = query_yes_no("The specified Output Directory does not exist. \nDo you wish to create it?")
+            if (create):
+                try:
+                    os.mkdir(outpath)
+                except:
+                    print("Unable to create the output directory. Exiting...")
+                    sys.exit(1)
+            else:
+                print("Output directory does not exist. Cannot proceed. Specify a valid directory in config.ini or using the -o argument")
                 sys.exit(1)
-        else:
-            print("Output directory does not exist. Cannot proceed. Specify a valid directory in config.ini or using the -o argument")
-            sys.exit(1)
 
     #if target does not exist - present error and exit
     if not path.exists(target):
@@ -260,9 +314,11 @@ def main(argv):
     verbose = 0
 
     parser = argparse.ArgumentParser(description="Check whether required programs and modules exist.", add_help=True)
-    parser.add_argument('-f', '--file', help='The file that contains configuration settings', required=False)
+    parser.add_argument('-c', '--config', help='The file that contains configuration settings', required=False)
+    parser.add_argument('-f', '--apk', help='Specify an apk file to unpack and search', required=False)
+    parser.add_argument('-b', '--usebulk', help='Use Bulk_Extractor to perform scans (Cannot be used with -i or -u', action='store_true', required=False)
     parser.add_argument('-o', '--output', help='The location to save output file', required=False)
-    parser.add_argument('-t', '--target', help='The unpacked apk directory to scan', required=False)
+    parser.add_argument('-t', '--target', help='The unpacked apk directory to scan. if -f is used, the apk will be unpacked here', required=False)
     parser.add_argument('-i', '--findip', help='Search for IP Addresses in target files', action='store_true', required=False)
     parser.add_argument('-u', '--findurl', help='Search for URLs in target files', action='store_true', required=False)
     parser.add_argument('-v', '--verbose', help='The level of debugging.', type=int, required=False)
@@ -270,7 +326,7 @@ def main(argv):
     parser.add_argument('--version', action='version', version='%(prog)s 0.5')
 
     args = parser.parse_args()
-    if args.file:
+    if args.config:
         cfgfile = args.file
 
     try:
@@ -310,10 +366,23 @@ def main(argv):
     folderCheck()
 
     #Commence searching
+    #If bulk extractor is used, send True to folderCheck()
+    if args.apk:
+        #update outpath and target
+        print("[+] APK Specified. Unzipping...")
+        unzip(args.apk)
+
+
+
+    bulkScan(verbose)
+
+
     if args.findip:
         findIPs()
 
     if args.findurl:
         findURLs()
+
+
 
 main(sys.argv[1:])
