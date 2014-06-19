@@ -253,55 +253,58 @@ def folderCheck(bulk=False):
         if 'Windows' in system:
             value = config.get('Windows-Settings', 'outpath')
             if value == "":
-                print('Output Directory not set, using current working directory')
+                print('\tOutput Directory not set, using current working directory')
                 outpath = os.getcwd() + "\\Reports"
             else:
                 outpath = value
 
-        change = query_yes_no("Output directory set to: \"" + outpath + "\" Do you wish to change it?", "no")
+        change = query_yes_no("\tOutput directory set to: \"" + outpath + "\" Do you wish to change it?", "no")
         if (change):
-            outpath = input("Enter a new output directory path: ")
-            print("Output directory changed to: " + outpath)
+            outpath = input("\tEnter a new output directory path: ")
+            print("\tOutput directory changed to: " + outpath)
             print()
 
     if target == "":
         if 'Windows' in system:
             value = config.get('Windows-Settings', 'target')
             if value == "":
-                print('Target directory not set, using current working directory')
+                print('\tTarget directory not set, using current working directory')
                 target = os.getcwd() + "\\Target"
             else:
                 target = value
 
-        change = query_yes_no("Target directory set to: \"" + target + "\" Do you wish to change it?", "no")
+        change = query_yes_no("\tTarget directory set to: \"" + target + "\" Do you wish to change it?", "no")
         if (change):
-            target = input("Enter a new target directory: ")
+            target = input("\tEnter a new target directory: ")
 
     #if outpath does not exist, create it?
     #if bulk_extractor is used, do not create the output directory -- Bulk Extractor will create it
     if not bulk:
         if not path.exists(outpath):
-            create = query_yes_no("The specified Output Directory does not exist. \nDo you wish to create it?")
+            create = query_yes_no("\tThe specified Output Directory does not exist. \nDo you wish to create it?")
             if (create):
                 try:
                     os.mkdir(outpath)
                 except:
-                    print("Unable to create the output directory. Exiting...")
+                    print("\tUnable to create the output directory. Exiting...")
                     sys.exit(1)
             else:
-                print("Output directory does not exist. Cannot proceed. Specify a valid directory in config.ini or using the -o argument")
+                print("[-] Folder Check Failed")
+                print("\tOutput directory does not exist. Cannot proceed. Specify a valid directory in config.ini or using the -o argument")
                 sys.exit(1)
 
     #if target does not exist - present error and exit
     if not path.exists(target):
-        print("The specified target scan directory does not exist. \nVerify the location of the unpacked APK and try again.\nExiting...")
+        print("[-] Folder Check Failed")
+        print("\tThe specified target scan directory does not exist. \nVerify the location of the unpacked APK and try again.\nExiting...")
         sys.exit(1)
 
-    print("[+] Folder check successful\n")
-    proceed = query_yes_no("Output Directory: " + outpath + \
-                                    "\nTarget Directory: " + target + "\nDo you wish to proceed?")
+
+    proceed = query_yes_no("\n\tOutput Directory: " + outpath + \
+                                    "\n\tTarget Directory: " + target + "\n\tDo you wish to proceed?")
+
     if not proceed:
-        print("User does not wish to proceed. Exiting...")
+        print("\tUser does not wish to proceed. Exiting...")
         sys.exit(1)
 
 #Parse the command line arguments.
@@ -363,7 +366,9 @@ def main(argv):
     if args.target:
         target = args.target
 
+    print("[+] Checking Folders")
     folderCheck()
+    print("[+] Folder Check Complete")
 
     #Commence searching
     #If bulk extractor is used, send True to folderCheck()
@@ -373,9 +378,8 @@ def main(argv):
         unzip(args.apk)
 
 
-
-    bulkScan(verbose)
-
+    if args.usebulk:
+        bulkScan(verbose)
 
     if args.findip:
         findIPs()
