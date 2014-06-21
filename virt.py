@@ -1,7 +1,10 @@
 """ VirusTotal File Scan
-
+https://github.com/subbyte/virustotal/blob/master/virt.py
 Required libraries:
 - requests (can be installed manually or through pip)
+
+Original Author: Xiaokui Shu
+Code Modified by: liteman
 """
 
 __author__ = "Xiaokui Shu"
@@ -66,6 +69,7 @@ class VirusTotal(object):
         self.is_public_api = True
         # whether a retrieval request is sent recently
         self.has_sent_retrieve_req = False
+        self.has_sent_file = False
         # if needed (public API), sleep this amount of time between requests
         self.PUBLIC_API_SLEEP_TIME = 20
 
@@ -84,12 +88,20 @@ Send files to scan
         url = self.URL_BASE + "file/scan"
         attr = {"apikey": self.apikey}
 
+        response = ()
         for filename in filenames:
+            if self.has_sent_file and self.is_public_api:
+                print("\tPublic API Used - Sleeping 20 Seconds")
+                time.sleep(self.PUBLIC_API_SLEEP_TIME)
+
             files = {"file": open(filename, 'rb')}
             res = requests.post(url, data=attr, files=files)
+            self.has_sent_file = True
+
 
             if res.status_code == self.HTTP_OK:
                 resmap = json.loads(res.text)
+                response = (os.path.basename(filename), resmap["response_code"], resmap["scan_id"])
                 if not self.is_verboselog:
                     self.logger.info("sent: %s, HTTP: %d, response_code: %d, scan_id: %s",
                             os.path.basename(filename), res.status_code, resmap["response_code"], resmap["scan_id"])
@@ -97,6 +109,8 @@ Send files to scan
                     self.logger.info("sent: %s, HTTP: %d, content: %s", os.path.basename(filename), res.status_code, res.text)
             else:
                 self.logger.warning("sent: %s, HTTP: %d", os.path.basename(filename), res.status_code)
+
+        return response
 
     def retrieve_files_reports(self, filenames):
         """
@@ -147,6 +161,7 @@ Retrieve Report for the file checksum
 @param chksum: sha256sum of the target file
 """
         if self.has_sent_retrieve_req and self.is_public_api:
+            print("\tPublic API Used - Sleeping 20 Seconds")
             time.sleep(self.PUBLIC_API_SLEEP_TIME)
 
         url = self.URL_BASE + "file/report"
