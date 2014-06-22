@@ -506,6 +506,11 @@ def vtReport(filename, resmap):
 
     reportName = os.path.basename(filename) + "-" + resmap.get('sha256')[:6] + resmap.get('sha256')[-6:] + "-" + resmap["scan_date"].split()[0] + ".txt"
 
+    if not os.path.exists(outpath + "\\VirusTotal\\" + "hashlist.txt"):
+        f = open(outpath + "\\VirusTotal\\" + "hashlist.txt", 'w')
+        f.close()
+
+
     with open(outpath + "\\VirusTotal\\" + reportName, 'w') as report:
         report.write("File Scanned: " + filename + "\n")
         report.write("VirusTotal: " + resmap["permalink"] + "\n")
@@ -520,6 +525,9 @@ def vtReport(filename, resmap):
         report.write("Total: " + str(resmap["total"]) + "\n")
         report.write("Scans: " + "\n")
         report.write(getScanTable(resmap['scans']))
+
+    with open(outpath + "\\VirusTotal\\" + "hashlist.txt", 'a') as hashlist:
+        hashlist.write("\nSHA256\t" + reportName + "\t" + virt.sha256sum(outpath + "\\VirusTotal\\" + reportName) )
 
     return reportName
 
@@ -580,12 +588,7 @@ def main(argv):
     parser_virustotal.add_argument('-v', '--verbose', help='The level of debugging.', type=int, required=False)
     parser_virustotal.set_defaults(func=vtScan)
 
-
-
     args = parser.parse_args()
-
-
-
     args.func(args)
 
 
