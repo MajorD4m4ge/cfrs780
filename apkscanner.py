@@ -436,32 +436,7 @@ def listDetected(scans):
     print(tempStr)
 
 def vtScan(args):
-    """
-    retrieve_report(self, chksum):
-        Retrieve Report for the file checksum
-        4 retrieval per min if only public API used
-        @param chksum: sha256sum of the target file
 
-    retrieve_files_reports(self, filenames):
-        Retrieve Report for file
-        @param filename: target file
-
-    send_files(self, filenames):
-        Send files to scan
-        @param filenames: list of target files
-        returns a dict where key=filename and value is a tuple of (VT response code, scan_id)
-
-    virt.list_all_files(path):
-        List all file paths
-        @param path: if it is a path, just return, if dir, return paths of files in it
-        Subdirectories not listed
-        No recursive search
-
-    virt.sha256sum(filename):
-        Efficient sha256 checksum realization
-        Take in 8192 bytes each time
-        The block size of sha256 is 512 bytes
-    """
     global outpath
     verbose = 0
 
@@ -533,6 +508,7 @@ def vtReport(filename, resmap):
 
     with open(outpath + "\\VirusTotal\\" + reportName, 'w') as report:
         report.write("File Scanned: " + filename + "\n")
+        report.write("VirusTotal: " + resmap["permalink"] + "\n")
         report.write("Hashes:\n")
         report.write("\tMD5: " + resmap["md5"] + "\n")
         report.write("\tSHA1: " + resmap["sha1"] + "\n")
