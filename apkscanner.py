@@ -452,8 +452,13 @@ def vtScan(args):
 
     #parse API Key from config.ini
     config = parseConfig()
-    vt.apikey = config.get('api-keys', 'virustotal')
-    if verbose > 0:
+    if config.get('api-keys', 'virustotal') is '':
+            print("\t[-]Error: You must add your VirusTotal API Key in config.ini ")
+            sys.exit(1)
+    else:
+        vt.apikey = config.get('api-keys', 'virustotal')
+
+    if verbose > 1:
         print("\tAPI Key: " + vt.apikey)
 
     #if the output directory does not have a VirusTotal folder - create it
