@@ -3,6 +3,7 @@ __author__ = 'Liteman'
 #ConfigParser code provided by TKhan
 #Code customized and extended with error-checking and additional arguments
 #imports virt.py which requires the requests library be installed http://docs.python-requests.org/en/latest/
+#requires mainintent.py provided by TKhan -- Copied and mofified from --> http://www.bulbsecurity.com/backdooring-apks-programmatically-2/
 
 
 import sys
@@ -18,6 +19,8 @@ import zipfile
 import virt         #https://github.com/subbyte/virustotal/blob/master/virt.py
 import json
 import logging
+import time
+import mainintent as mi
 
 
 #Global Values
@@ -29,7 +32,22 @@ target = ""   #set by config.ini or command-line argument
 system = platform.platform()
 architecture = platform.architecture()[0]
 
+def unzip(apkfile):
+    global target
+
+    #Check for / create directory "unpacked" in Target location
+    if not os.path.isdir(target + "\\unpacked"):
+        os.mkdir(target + "\\unpacked")
+
+    unzipfolder = target + "\\unpacked\\" + apkfile.split("\\")[-1].replace('.','-')
+
+    with zipfile.ZipFile(apkfile) as zf:
+        zf.extractall(unzipfolder)
+
+    return os.path.abspath(unzipfolder)
+
 def extract(apkfile):
+    #TODO -- Reevaulate this function. Can this be replaced by unzip?
     global outpath
     global target
 
@@ -182,7 +200,7 @@ def depCheck(verbose):
     global cfgfile
 
     if verbose >= 1:
-        print('Entering Dependency Check:')
+        print('\t[+] Checking dependencies...')
 
     if verbose >= 2:
         print('\tConfig file passed in:' + str(cfgfile))
@@ -230,6 +248,7 @@ def depCheck(verbose):
                 missing += '\n| [-]:   '
                 missing += value
 
+    print()
     #Return True if all dependencies are present; otherwise, return False.
     if (isMissing):
         return False
@@ -443,6 +462,8 @@ def vtScan(args):
     if args.verbose:
         verbose = args.verbose
 
+    testConfig(args.config)
+
     folderCheck(True, False)
 
     print("\n[+] Submitting file(s) to VirusTotal\n\tPath: " + args.file)
@@ -536,6 +557,210 @@ def vtReport(filename, resmap):
 
     return reportName
 
+def decodeapk(apkfile):
+    global target
+
+    #Check for / create directory "decoded" in Target location
+    decodedpath = target + "\\decoded"
+    if not os.path.isdir(decodedpath):
+        os.mkdir(decodedpath)
+
+    #find path to apktool
+    config = parseConfig()
+    apktoolpath = config.get('Windows-Tools', 'apktool')
+
+    #build command for apktool
+    decodedapkpath = os.path.join(decodedpath, apkfile.split("\\")[-1].replace('.', '-'))
+    apkcmd = apktoolpath + "\\apktool.bat d " + apkfile + " " + decodedapkpath
+    subprocess.call(apkcmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+    return decodedapkpath
+
+
+def testavd(args):
+    '''print(args.name)
+    print(args.size)
+    print(args.apk)
+    print(args.intent)
+    print(args.package)
+    print(args.timeout)
+    '''
+    verbose = 0
+    if args.verbose:
+        verbose = args.verbose
+
+    testConfig(args.config)
+    folderCheck(True, True)
+    tempdir = target + "\\Temp"
+
+    print("[+] Starting up AVD Emulator")
+    print()
+
+    depCheck(verbose)
+
+    #Read config.ini settings for AVD and SDCARD paramters
+    config = parseConfig()
+
+    #Prepare AVD Settings
+    if verbose > 0:
+        print("\t[+] AVD and SDCARD Settings")
+        for key in config['android']:
+            print("\t\t" + str(key) + "\tValue: " + config.get('android', key))
+
+    if not args.name:
+        avdname = "testavd_" + os.path.basename(args.apk).replace('.', '-')
+    else:
+        avdname = args.name
+
+    sdname = avdname + "_sdcard.img"
+
+
+    print("\t\tAVD Name set to: " + avdname)
+    print("\t\tSDCard Name set to: " + sdname)
+
+    if not os.path.isdir(tempdir):
+        os.mkdir(tempdir)
+    print("\t\tFiles placed in " + tempdir)
+
+    #Read Andoird Settings from config.ini
+    andsdktoolpath = config.get('Windows-Tools', 'andsdktools')
+    apiversion = config.get('android', 'apiversion')
+    andplatform = config.get('android', 'vplatform')
+    sdcardsize = config.get('android', 'sdcardsize')
+    partsize = config.get('android', 'partitionsize')
+    runtime = config.get('android', 'runtime')
+
+    #convert runtime to float
+    try:
+        runtime = float(runtime)
+    except:
+        print("[-] Error: Not able to read android runtime from " + os.path.abspath(cfgfile))
+
+    #Get MainIntent from Target App
+    ## args.apk holds the apk file path
+    ## use mainintents.py
+    ## mainintent.py requires an extracted apk folder
+    ## the apk must be decoded by apktool before it can be parsed by mainintent
+    ## Usage for apktool:
+    ##  Usage: apktool [-q|--quiet OR -v|--verbose] COMMAND [...]
+    ##
+    ##  COMMANDs are:
+    ##
+    ##  d[ecode] [OPTS] <file.apk> [<dir>]
+    ##    Decode <file.apk> to <dir>.
+
+    print()
+    print("\t[+] Decoding APK ")
+
+    decodedapk = decodeapk(args.apk)
+    package, mainact = mi.printmainintent(decodedapk)
+    mainintent = package + "/" + mainact
+    print("\t\tMainintent: " + mainintent)
+    print()
+
+
+
+
+    #Create AVD
+    ## Command Construction
+    ## F:\School\Tools\ADTBundle\sdk\tools\android.bat create avd -n <name> -t <api> --abi <platform>
+    ## F:\School\Tools\ADTBundle\sdk\tools\android.bat create avd -n newAVD -t android-17 --abi default/x86
+
+    print()
+    print("\t[+] Creating AVD ")
+    print("\t\tAVD Name: " + avdname)
+
+    #handle the interactive input from android.bat
+    createcmd = "echo no | "
+
+    createcmd += andsdktoolpath + "\\android.bat create avd -n " + avdname + " -t " + apiversion + " --abi " + andplatform + " -p " + tempdir + "\\avd"
+
+    if verbose > 1:
+        print("Create AVD Command: " + createcmd)
+
+    subprocess.call(createcmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+    #Create SDCARD
+    ##Command construction
+    ## F:\School\Tools\ADTBundle\sdk\tools\mksdcard -l <label> <size>M <sd image name>
+    ## F:\School\Tools\ADTBundle\sdk\tools\mksdcard -l cfrs 1024M avdimage.img
+    print()
+    print("\t[+] Creating SD Card Image ")
+    mksdcmd = andsdktoolpath + "\\mksdcard -l " + avdname[:-3] + " " + sdcardsize + " " + os.path.join(tempdir, sdname)
+    if verbose > 1:
+        print("Create SD Command: " + mksdcmd)
+
+    subprocess.call(mksdcmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+
+    #Start AVD
+    ## Command Construction
+    ## F:\School\Tools\ADTBundle\sdk\tools\emulator -avd <name> -partition-size 512 -noaudio -no-snapshot -sdcard <avd image name>
+    ## F:\School\Tools\ADTBundle\sdk\tools\emulator -avd newAVD -partition-size 512 -noaudio -no-snapshot -sdcard avdimage.img
+
+    print("\t[+] Starting Emulator ")
+    startcmd = andsdktoolpath + "\\emulator-x86.exe -avd " + avdname + " -partition-size " + partsize + " -noaudio "
+    startcmd += "-no-snapshot -sdcard " + os.path.join(tempdir, sdname)
+
+    if verbose > 1:
+        print("\t\tStart AVD command: " + startcmd)
+
+    #Start the Process, then capture the PID
+    avdproc = subprocess.Popen(startcmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    avdpid = str(avdproc.pid)
+    print("\t\tEmulator PID: " + avdpid)
+
+    #allow emulator time to load
+    time.sleep(20)
+
+    if not args.manual:
+        #Remount emulator file system
+        #TODO
+        print()
+        print("\t[+] Remounting Filesystem to Read/Write")
+
+        # Install and Launch App and Sleep
+        ##TODO
+        ##
+        print()
+        print("\t[+] Installing APK")
+
+
+
+
+
+        print("\t\tRunning APK for " + str(runtime) + " Seconds")
+        time.sleep(runtime)
+
+
+        #Kill AVD Process
+        ##
+        print("\t\tKilling AVD Process: " + avdpid)
+        subprocess.call("taskkill /PID " + avdpid,stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+        #Begin Cleanup
+        ##
+        print("\t[+] Cleaning up...")
+        print("\t\tDeleting AVD: " + avdname)
+        print("\t\tDeleting SDCard: " + os.path.join(tempdir, sdname))
+
+        delcmd = andsdktoolpath + "\\android.bat delete avd -n " + avdname
+
+        if verbose > 1:
+            print("\t\tDelete AVD Command: " + delcmd)
+
+        subprocess.call(delcmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+
+        os.remove(os.path.join(tempdir, sdname))
+
+        print("[+] App Test Complete.")
+    else:
+        print("[+] Emulator start up complete.")
+        print("\tDon't forget to delete the AVD when finished")
+
+
+
 #Parse the command line arguments.
 def main(argv):
 
@@ -584,10 +809,22 @@ def main(argv):
     #testavd command
     parser_testavd = subparsers.add_parser('testavd')
     #TODO
+    parser_testavd.add_argument('-m', '--manual', help="Create and start the emulator only", action='store_true', required=False)
+    parser_testavd.add_argument('-c', '--config', help="Specify alternative config.ini file", metavar="PATH", required=False)
+    parser_testavd.add_argument('-n', '--name', help="Specify the name for the AVD file", required=False)
+    parser_testavd.add_argument('-s', '--size', help="Size of the SD Card (Default is 1024)", required=False)
+    parser_testavd.add_argument('-a', '--apk', help="APK File to load and test", metavar='PATH', required=False)
+    parser_testavd.add_argument('-t', '--timeout', help="Kill AVD process after -t seconds (Default 30)", metavar='SECONDS', required=False)
+    parser_testavd.add_argument('-p', '--package', help="Package name of APK", metavar='NAME', required=False)
+    parser_testavd.add_argument('-i', '--intent', help="Main intent of APK", metavar='NAME', required=False)
+    parser_testavd.add_argument('-v', '--verbose', help="The level of debugging", type=int)
+    parser_testavd.set_defaults(func=testavd)
+
 
     #virustotal command
     #TODO
     parser_virustotal = subparsers.add_parser('virustotal')
+    parser_virustotal.add_argument('-c', '--config', help="Specify alternative config.ini file", metavar="PATH", required=False)
     parser_virustotal.add_argument('-f', '--file', help='Specify the path to a file or directory of files to send to VirusTotal', metavar='PATH', required=True)
     parser_virustotal.add_argument('--force', help='Send file to VirusTotal even a report is available', action='store_true', required=False)
     parser_virustotal.add_argument('-v', '--verbose', help='The level of debugging.', type=int, required=False)
