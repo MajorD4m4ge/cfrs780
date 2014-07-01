@@ -77,14 +77,18 @@ def bulkScan(verbose):
 
     config = parseConfig()
 
+    print("[+] Running Bulk Extractor...")
+
     if 'Windows' in system:
         bulkcmd = config.get('Windows-Tools', '32_bulk')
     if 'Linux' in system:
         bulkcmd = config.get('Linux-Tools', '32_bulk')
 
-    bulkcmd = "\"" + bulkcmd + "\"" + " -o " + outpath + " -R " + target
+    bulkcmd = "\"" + bulkcmd + "\"" + " -o " + outpath + " -R " + "\"" +  target + "\""
+    if verbose > 1:
+        print("\tBulk Command: " + bulkcmd)
 
-    print("[+] Running Bulk Extractor...")
+
     try:
         output = subprocess.Popen(bulkcmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         if(verbose > 0):
@@ -557,7 +561,7 @@ def vtReport(filename, resmap):
 
     return reportName
 
-def decodeapk(apkfile):
+def decodeapk(apkfile, verbose):
     global target
 
     #Check for / create directory "decoded" in Target location
@@ -571,10 +575,125 @@ def decodeapk(apkfile):
 
     #build command for apktool
     decodedapkpath = os.path.join(decodedpath, apkfile.split("\\")[-1].replace('.', '-'))
-    apkcmd = apktoolpath + "\\apktool.bat d " + apkfile + " " + decodedapkpath
+
+    #remove spaces from output path
+    decodedapkpath = decodedapkpath.replace(' ', '-')
+    apkcmd = apktoolpath + "\\apktool.bat d -o " + decodedapkpath + " \"" + apkfile + "\""
+
+    print("\t\tDecoded Path:" + decodedapkpath)
+    if verbose > 1:
+        print("\t\tAPK Command: " + apkcmd)
+
     subprocess.call(apkcmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
     return decodedapkpath
+
+def getemulator(andplatformtools, verbose):
+
+    choices = []
+    rawoutput = subprocess.Popen(andplatformtools + "\\adb devices -l", shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    for line in rawoutput.stdout.readlines():
+        print(line.decode("ASCII"))
+
+    print("Done with device list...Exiting")
+    sys.exit()
+
+def killavd(avdpid, avdname, sdname, tempdir, andsdktoolpath, verbose):
+
+    #Kill AVD Process
+    ##
+    print("\t\tKilling Emulator Process: " + avdpid)
+    subprocess.call("taskkill /PID " + avdpid, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+    #Begin Cleanup
+    ##
+    print()
+    print("\t[+] Cleaning up...")
+    print("\t\tDeleting AVD: " + avdname)
+    print("\t\tDeleting SDCard: " + os.path.join(tempdir, sdname))
+
+    delcmd = andsdktoolpath + "\\android.bat delete avd -n " + avdname
+
+    if verbose > 1:
+        print("\t\tDelete AVD Command: " + delcmd)
+
+    subprocess.call(delcmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+
+    os.remove(os.path.join(tempdir, sdname))
+
+
+def listdevices(andplatformtools, verbose, count=False):
+    '''
+    :param andplatformtools: Path to ADB.exe
+    :param count:  -- boolean value, if true return number of devices in list. if False return list of devices
+    :param verbose:
+    :return:
+    '''
+    output = subprocess.Popen(andplatformtools + "\\adb.exe devices -l", shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    time.sleep(2) #give Popen time to return
+    results = []
+    for line in output.stdout.readlines():
+        results.append(line.decode("ASCII"))
+
+    if count:
+        return len(results) - 2 #if no devices are present, the list length is 2 lines. Subtract 2
+    else:
+        if verbose > 1:
+            print("\t\tResults list \n\t\t\t" + str(results[1:]))
+        return results[1:] #do not include the heading and blank line
+
+def setstartmarker(andplatformtools, verbose):
+
+    subprocess.call(andplatformtools + "\\adb shell touch /system/vendor/bin/starttime")
+
+def gettouchedfiles(andplatformtools, verbose):
+    '''
+
+    :param andplatformtools: path to adb.exe
+    :param verbose:
+    :return: a list of the line-by-line output
+    '''
+
+    findcmd = 'find / \\( -type f -a -newer /system/vendor/bin/starttime \\) -o -type d -a \\( -name dev -o -name proc -o -name sys \\) -prune | grep -v -e \"^/dev$\" -e \"^/proc$\" -e \"^/sys$\"'
+
+    list = []
+    output = subprocess.Popen(andplatformtools + "\\adb shell /system/vendor/bin/busybox-i686 " + findcmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+    for line in output.stdout.readlines():
+        list.append(line.decode("ASCII").rstrip())
+
+    return list
+
+def processfiles(filelist, andplatformtools, avdname, verbose):
+    global outpath
+
+
+    savefilesdir = os.path.join(outpath, avdname) + "\\touched_files"
+
+
+
+    #create directory to save files
+    if not os.path.isdir(os.path.join(outpath, avdname)):
+        os.mkdir(os.path.join(outpath, avdname))  # %OUTPATH%\<avdname>
+        os.mkdir(savefilesdir)
+    elif not os.path.isdir(savefilesdir): # %OUTPATH%\<avdname>\touched_files
+        os.mkdir(savefilesdir)
+
+    hashfile = savefilesdir + "\\hashes.txt"
+
+    if not os.path.exists(hashfile):
+        open(hashfile, 'w').close() #create hashes.txt for future writing
+
+
+    for file in filelist:
+        filename = file.split("/")[-1]
+        adbpullcmd = andplatformtools + "\\adb pull " + file + " " + savefilesdir
+        subprocess.call(adbpullcmd, shell=False)
+        with open(hashfile, 'a') as hash:
+            hash.write(virt.sha256sum(os.path.join(savefilesdir, filename)) + "\t\t" + file + "\n")
+
+
 
 
 def testavd(args):
@@ -591,7 +710,7 @@ def testavd(args):
 
     testConfig(args.config)
     folderCheck(True, True)
-    tempdir = target + "\\Temp"
+    tempdir = target + "\\temp"
 
     print("[+] Starting up AVD Emulator")
     print()
@@ -607,8 +726,18 @@ def testavd(args):
         for key in config['android']:
             print("\t\t" + str(key) + "\tValue: " + config.get('android', key))
 
+
+    #Replace periods and spaces in the APK file name. This will handle bad path conditions where a space exists in the
+    # file name
+    '''apkfile = ''
+    if args.apk:
+        apkfile = os.path.basename(args.apk).replace('.','-')
+        apkfile = apkfile.replace(' ', '-')
+    '''
+
     if not args.name:
-        avdname = "testavd_" + os.path.basename(args.apk).replace('.', '-')
+        avdname = "testavd_" + args.apk.split("\\")[-1].replace('.', '-') #remove periods
+        avdname = avdname.replace(' ', '-') #remove spaces
     else:
         avdname = args.name
 
@@ -624,15 +753,17 @@ def testavd(args):
 
     #Read Andoird Settings from config.ini
     andsdktoolpath = config.get('Windows-Tools', 'andsdktools')
+    andplatformtools = config.get('Windows-Tools', 'andplatformtools')
     apiversion = config.get('android', 'apiversion')
     andplatform = config.get('android', 'vplatform')
     sdcardsize = config.get('android', 'sdcardsize')
     partsize = config.get('android', 'partitionsize')
     runtime = config.get('android', 'runtime')
+    busybox = config.get('Windows-Tools', 'busybox')
 
     #convert runtime to float
     try:
-        runtime = float(runtime)
+        runtime = int(runtime)
     except:
         print("[-] Error: Not able to read android runtime from " + os.path.abspath(cfgfile))
 
@@ -652,13 +783,11 @@ def testavd(args):
     print()
     print("\t[+] Decoding APK ")
 
-    decodedapk = decodeapk(args.apk)
+    decodedapk = decodeapk(args.apk, verbose)
+
     package, mainact = mi.printmainintent(decodedapk)
     mainintent = package + "/" + mainact
     print("\t\tMainintent: " + mainintent)
-    print()
-
-
 
 
     #Create AVD
@@ -676,7 +805,7 @@ def testavd(args):
     createcmd += andsdktoolpath + "\\android.bat create avd -n " + avdname + " -t " + apiversion + " --abi " + andplatform + " -p " + tempdir + "\\avd"
 
     if verbose > 1:
-        print("Create AVD Command: " + createcmd)
+        print("\t\tCreate AVD Command: " + createcmd)
 
     subprocess.call(createcmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
@@ -688,7 +817,7 @@ def testavd(args):
     print("\t[+] Creating SD Card Image ")
     mksdcmd = andsdktoolpath + "\\mksdcard -l " + avdname[:-3] + " " + sdcardsize + " " + os.path.join(tempdir, sdname)
     if verbose > 1:
-        print("Create SD Command: " + mksdcmd)
+        print("\t\tCreate SD Command: " + mksdcmd)
 
     subprocess.call(mksdcmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
@@ -698,6 +827,7 @@ def testavd(args):
     ## F:\School\Tools\ADTBundle\sdk\tools\emulator -avd <name> -partition-size 512 -noaudio -no-snapshot -sdcard <avd image name>
     ## F:\School\Tools\ADTBundle\sdk\tools\emulator -avd newAVD -partition-size 512 -noaudio -no-snapshot -sdcard avdimage.img
 
+    print()
     print("\t[+] Starting Emulator ")
     startcmd = andsdktoolpath + "\\emulator-x86.exe -avd " + avdname + " -partition-size " + partsize + " -noaudio "
     startcmd += "-no-snapshot -sdcard " + os.path.join(tempdir, sdname)
@@ -710,54 +840,131 @@ def testavd(args):
     avdpid = str(avdproc.pid)
     print("\t\tEmulator PID: " + avdpid)
 
-    #allow emulator time to load
-    time.sleep(20)
+    #Sleep until the device shows up in the adb devices list and is online
+    devcount = listdevices(andplatformtools, verbose, count=True)
+    retries = 1
+    while devcount < 1 and retries < 4:
+        time.sleep(10)
+        devcount = listdevices(andplatformtools, verbose, count=True)
+        if devcount == 0:
+            print("\t\tWaiting on emulator...")
+        elif devcount > 0:
+            list = listdevices(andplatformtools, verbose)
+            if 'offline' in list[0]:  #if the device is found but still offline, reset devcount to 0 to retry
+                print('\t\tEmulator started but not online. Waiting...')
+                print()
+                devcount = 0
+            else:
+                print("\t\tEmulator ready.")
+        retries += 1
+
+    if retries == 4:
+        print("Unable to locate the emulator using \"adb devices -l\". Exiting...")
+        killavd(avdpid, avdname, sdname, tempdir, andsdktoolpath, verbose)
+        sys.exit(1)
+
+
 
     if not args.manual:
+
+        ## Identify which emulator the user wishes to use
+        ##devicename = getemulator(andplatformtools, verbose)
+
         #Remount emulator file system
         #TODO
         print()
         print("\t[+] Remounting Filesystem to Read/Write")
 
-        # Install and Launch App and Sleep
+        remountcmd = andplatformtools + "\\adb shell mount -o rw,remount -t yaffs2 /dev/block/mtdblock0 /system"
+        if verbose > 1:
+            print("Remount Command: " + remountcmd)
+
+        subprocess.call(remountcmd, shell=False)
+
+
+        # Push busybox
+        ## make directory /system/vendor/bin
+
+        print()
+        print("\t[+] Pushing Busybox")
+
+        mkdircmd = andplatformtools + "\\adb shell mkdir -p /system/vendor/bin"
+        subprocess.call(mkdircmd, shell=False)
+
+        pushcmd = andplatformtools + "\\adb push " + busybox + " /system/vendor/bin"
+
+        if verbose > 1:
+            print("Push busybox command: " + pushcmd)
+
+        subprocess.call(pushcmd, shell=False)
+
+        #set busybox with +x
+        subprocess.call(andplatformtools + "\\adb shell chmod 755 /system/vendor/bin/busybox-i686")
+
+
+        # Install and Launch App
         ##TODO
         ##
         print()
         print("\t[+] Installing APK")
 
+        installcmd = andplatformtools + "\\adb install " + "\"" + args.apk + "\""
+
+        if verbose > 1:
+            print("Install APK Command: " + installcmd)
+
+        subprocess.call(installcmd, shell=False)
 
 
+        print()
+        print("\t[+] Launching App")
+        print("\t\tMain Intent: " + mainintent)
+        launchcmd = andplatformtools + "\\adb shell am start -a android.intent.action.MAIN -n " + mainintent
 
+        if verbose > 1:
+            print("\t\tLaunch command: " + launchcmd)
 
+        subprocess.call(launchcmd, shell=False)
+
+        #Set marker to indicate beginning of app test
+        setstartmarker(andplatformtools, verbose)
+
+        #Sleep for a period of time (runtime) while app is running
         print("\t\tRunning APK for " + str(runtime) + " Seconds")
         time.sleep(runtime)
 
+        print()
+        print("\t[+] Run time expired. Searching for touched files...")
+        #get list of files touched since the start marker was set
+        filelist = gettouchedfiles(andplatformtools, verbose)
 
-        #Kill AVD Process
-        ##
-        print("\t\tKilling AVD Process: " + avdpid)
-        subprocess.call("taskkill /PID " + avdpid,stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        print("\t\tFile list found. ")
+        if verbose > 0:
+            for file in filelist:
+                print("\t\t\t" + file)
 
-        #Begin Cleanup
-        ##
-        print("\t[+] Cleaning up...")
-        print("\t\tDeleting AVD: " + avdname)
-        print("\t\tDeleting SDCard: " + os.path.join(tempdir, sdname))
+        print()
+        print("\t[+] Downloading and hashing files")
+        processfiles(filelist, andplatformtools, avdname, verbose)
 
-        delcmd = andsdktoolpath + "\\android.bat delete avd -n " + avdname
-
-        if verbose > 1:
-            print("\t\tDelete AVD Command: " + delcmd)
-
-        subprocess.call(delcmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        print()
+        print("\t[+] Processing completed.")
 
 
-        os.remove(os.path.join(tempdir, sdname))
+        killavd(avdpid, avdname, sdname, tempdir, andsdktoolpath, verbose)
 
+        print()
         print("[+] App Test Complete.")
-    else:
+
+    else: #if user specified the -m flag for manual control of the emulator
         print("[+] Emulator start up complete.")
-        print("\tDon't forget to delete the AVD when finished")
+        stopavd = False
+        while not stopavd:
+            stopavd = query_yes_no("Type 'yes' when you are done.\n\t\tAre you ready to kill the emulator?", "no")
+
+        killavd(avdpid, avdname, sdname, tempdir, andsdktoolpath, verbose)
+
+
 
 
 

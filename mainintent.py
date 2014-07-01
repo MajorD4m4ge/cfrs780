@@ -4,11 +4,10 @@ import sys
 import datetime
 import xml.etree.ElementTree as ET
 
-
 def printmainintent(foldername):
     ET.register_namespace("android", "http://schemas.android.com/apk/res/android")
     tree = ET.ElementTree()
-    tree.parse(foldername + "/AndroidManifest.xml")
+    tree.parse( foldername + "\\AndroidManifest.xml")
     root = tree.getroot()
     package = root.get('package')
 
