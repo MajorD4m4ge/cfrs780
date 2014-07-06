@@ -28,6 +28,7 @@ import hashlib
 VERSION = '0.9'
 MAX_PATH = 260
 cfgfile = "config.ini"
+config = None
 outpath = ""  #set by config.ini or command-line argument
 target = ""   #set by config.ini or command-line argument
 system = platform.platform()
@@ -216,14 +217,15 @@ def parseConfig():
 def depCheck(verbose):
     global cfgfile
 
-    if verbose >= 1:
-        print('\t[+] Checking dependencies...')
+    if verbose > 0:
+        print()
+        print('[+] Checking dependencies...')
 
-    if verbose >= 2:
+    if verbose > 1:
         print('\tConfig file passed in:' + str(cfgfile))
 
     #Declare list of missing executables and/or modules.
-    missing = '|[-] Missing the following:'
+    missing = '\t|[-] Missing the following:'
     isMissing = False
 
     #Determine system: 'nt' for Windows, 'posix' for *nix, Mac OSX
@@ -574,32 +576,31 @@ def vtReport(filename, resmap):
 
     return reportName
 
-def decodeapk(apkfile, verbose):
-    global target
+def decodeapk(apkfile, avdname, verbose):
+    global outpath
 
     #Check for / create directory "decoded" in Target location
-    decodedpath = target + "\\decoded"
+    decodedpath = outpath + "\\" + avdname + "\\decoded"
     if not os.path.isdir(decodedpath):
         os.mkdir(decodedpath)
 
     #find path to apktool
-    config = parseConfig()
     apktoolpath = config.get('Windows-Tools', 'apktool')
 
     #build command for apktool
-    decodedapkpath = os.path.join(decodedpath, apkfile.split("\\")[-1].replace('.', '-'))
+    #decodedapkpath = os.path.join(decodedpath, apkfile.split("\\")[-1].replace('.', '-'))
 
     #remove spaces from output path
-    decodedapkpath = decodedapkpath.replace(' ', '-')
-    apkcmd = apktoolpath + "\\apktool.bat d -o " + decodedapkpath + " \"" + apkfile + "\""
+    #decodedapkpath = decodedapkpath.replace(' ', '-')
+    apkcmd = apktoolpath + "\\apktool.bat d -f -o " + decodedpath + " \"" + apkfile + "\""
 
-    print("\t\tDecoded Path:" + decodedapkpath)
+    print("\t\tDecoded Path:" + decodedpath)
     if verbose > 1:
         print("\t\tAPK Command: " + apkcmd)
 
     subprocess.call(apkcmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
-    return decodedapkpath
+    return decodedpath
 
 def getemulator(andplatformtools, verbose):
 
@@ -615,23 +616,22 @@ def killavd(avdpid, avdname, sdname, tempdir, andsdktoolpath, verbose):
 
     #Kill AVD Process
     ##
-    print("\t\tKilling Emulator Process: " + avdpid)
+    print("\tKilling Emulator Process: " + avdpid)
     subprocess.call("taskkill /PID " + avdpid, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
     #Begin Cleanup
     ##
     print()
-    print("\t[+] Cleaning up...")
-    print("\t\tDeleting AVD: " + avdname)
-    print("\t\tDeleting SDCard: " + os.path.join(tempdir, sdname))
+    print("[+] Cleaning up...")
+    print("\tDeleting AVD: " + avdname)
+    print("\tDeleting SDCard: " + os.path.join(tempdir, sdname))
 
     delcmd = andsdktoolpath + "\\android.bat delete avd -n " + avdname
 
     if verbose > 1:
-        print("\t\tDelete AVD Command: " + delcmd)
+        print("\tDelete AVD Command: " + delcmd)
 
     subprocess.call(delcmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-
 
     os.remove(os.path.join(tempdir, sdname))
 
@@ -700,7 +700,10 @@ def processfiles(filelist, andplatformtools, avdname, verbose):
     for file in filelist:
         filename = file.split("/")[-1]
         adbpullcmd = andplatformtools + "\\adb pull " + file + " " + savefilesdir
-        subprocess.call(adbpullcmd, shell=False)
+        output = subprocess.Popen(adbpullcmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if verbose > 0:
+            for line in output.stdout.readlines():
+                print("\t\t" + line.decode("ASCII").rstrip())
         with open(hashfile, 'a') as hash:
             hash.write(virt.sha256sum(os.path.join(savefilesdir, filename)) + "\t\t" + file + "\n")
 
@@ -721,7 +724,7 @@ def getinstallpath(andplatformtools, package, verbose):
     #file will be named with the package name + the version .apk
     #search /data/app and grep the package name
     print()
-    print("[+] Looking for installed APK file")
+    print("\t[+] Locating installed APK")
     lscmd = andplatformtools + "\\adb shell ls /data/app | /system/vendor/bin/busybox-i686 grep -i " + package
 
     resultb = subprocess.Popen(lscmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -732,11 +735,14 @@ def getinstallpath(andplatformtools, package, verbose):
         print("\t\tInstalled APK not found in /data/app")
         return ''
     else:
+        if verbose > 0:
+            print("\t\tFound APK in /data/app" + resultStr)
         return "/data/app/" + resultStr
 
 
 
 def testavd(args):
+    global config
     '''print(args.name)
     print(args.size)
     print(args.apk)
@@ -751,7 +757,7 @@ def testavd(args):
     testConfig(args.config)
     folderCheck(True, True)
 
-    tempdir = target + "\\temp"
+    tempdir = outpath + "\\temp"
     if not os.path.isdir(tempdir):
         os.mkdir(tempdir)
 
@@ -780,9 +786,13 @@ def testavd(args):
         print("\t[+] Android settings from config.ini")
         for key in config['android']:
             print("\t\t" + str(key) + "\tValue: " + config.get('android', key))
+        print()
 
     if not args.manual: #if manual isn't specified args.apk must be set with -a
         #TODO validate the specified apk path
+        if not args.apk:
+            print("[-] Error - Missing argument: You must specify -m or -a <apk path>")
+            sys.exit(1)
 
         if not args.name: #if -n wasn't used to specify name, use the name of the apk file
             avdname = "testavd_" + args.apk.split("\\")[-1].replace('.', '-') #remove periods
@@ -944,7 +954,7 @@ def testavd(args):
         print()
         print("\t[+] Decoding APK ")
 
-        decodedapk = decodeapk(args.apk, verbose)
+        decodedapk = decodeapk(args.apk, avdname, verbose)
 
         package, mainact = mi.printmainintent(decodedapk)
         mainintent = package + "/" + mainact
@@ -954,19 +964,21 @@ def testavd(args):
         ## Hash APK file before installing
         prehash = md5sum(args.apk)
 
-        #Install the APK. Function returns the path of the installed file
+        #Install the APK.
         installapk(andplatformtools, args.apk, verbose)
 
-        #find the installed apk on the device in the /data/app directory
-        #file will be named with the package name + the version .apk
-        #search /data/app and grep the package name
+        #Find the installed apk on the device in the /data/app directory
         installpath = getinstallpath(andplatformtools, package, verbose)
 
+        #Hash the installed APK file on the device
         hashcmd = andplatformtools + "\\adb shell md5 " + installpath
 
-        posthash = subprocess.Popen(hashcmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        for line in posthash.stdout.readlines():
-            print("\t\t\t" + line.decode("ASCII").rstrip())
+        hashoutput = subprocess.Popen(hashcmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        posthash = hashoutput.stdout.readlines()[0].decode("ASCII").rstrip()
+
+        print("\t\tPre-Install MD5:  " + prehash + " " + args.apk)
+        print("\t\tPost-Install MD5: " + posthash.split()[0] + " " + posthash.split()[1])
+
 
         print()
         print("\t[+] Launching App")
@@ -976,40 +988,36 @@ def testavd(args):
         if verbose > 1:
             print("\t\tLaunch command: " + launchcmd)
 
-        subprocess.Popen(launchcmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        subprocess.Popen(launchcmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
         #Set marker to indicate beginning of app test
         setstartmarker(andplatformtools, verbose)
 
         #Sleep for a period of time (runtime) while app is running
-        print("\t\tRunning APK for " + str(runtime) + " Seconds")
-        fullrun = True
-        try:
-            time.sleep(runtime)
-        except KeyboardInterrupt:
-            fullrun = False
+        print("\t\tRunning App for " + str(runtime) + " Seconds")
+        time.sleep(runtime)
 
-        if fullrun:
-            print()
-            print("\t[+] Run time expired. Searching for touched files...")
-            #get list of files touched since the start marker was set
-            filelist = gettouchedfiles(andplatformtools, verbose)
+        print()
+        print("[+] Run time expired. Searching for touched files...")
+        #get list of files touched since the start marker was set
+        filelist = gettouchedfiles(andplatformtools, verbose)
+
+        print()
+        print("\tFound Files: ")
+        if 'error: protocol fault (no status)' in filelist:
+            print("\t\tNone...")
         else:
-            print()
-            print("\t[+] User cancelled run time. Searching for touched files...")
-            #get list of files touched since the start marker was set
-            filelist = gettouchedfiles(andplatformtools, verbose)
-
-        if verbose > 0:
             for file in filelist:
-                print("\t\t\t" + file)
+                print("\t\t" + file)
+
+
+        if 'error: protocol fault (no status)' not in filelist:
+            print()
+            print("\t[+] Pulling and hashing files")
+            processfiles(filelist, andplatformtools, avdname, verbose)
 
         print()
-        print("\t[+] Downloading and hashing files")
-        processfiles(filelist, andplatformtools, avdname, verbose)
-
-        print()
-        print("\t[+] Processing completed.")
+        print("[+] Processing completed.")
 
 
         killavd(avdpid, avdname, sdname, tempdir, andsdktoolpath, verbose)
@@ -1018,9 +1026,11 @@ def testavd(args):
         print("[+] App Test Complete.")
 
     else: #if user specified the -m flag for manual control of the emulator
+        print()
         print("[+] Emulator start up complete.")
         stopavd = False
         while not stopavd:
+            print()
             stopavd = query_yes_no("Type 'yes' when you are done.\n\t\tAre you ready to kill the emulator?", "no")
 
         killavd(avdpid, avdname, sdname, tempdir, andsdktoolpath, verbose)
@@ -1101,6 +1111,7 @@ def main(argv):
     parser_virustotal.set_defaults(func=vtScan)
 
     args = parser.parse_args()
+
     args.func(args)
 
 
