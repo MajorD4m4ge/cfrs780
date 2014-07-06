@@ -8,6 +8,7 @@ __author__ = 'Liteman'
 
 import sys
 from os import path
+from threading import Thread
 import os
 import platform     #https://docs.python.org/2/library/platform.html
 import configparser #https://docs.python.org/2/library/configparser.html
@@ -24,8 +25,9 @@ import mainintent as mi
 import hashlib
 
 
+
 #Global Values
-VERSION = '0.9'
+VERSION = '1.1'
 MAX_PATH = 260
 cfgfile = "config.ini"
 config = None
@@ -299,7 +301,7 @@ def folderCheck(outdir, targdir, bulk=False):
                 value = config.get('Windows-Settings', 'outpath')
                 if value == "":
                     print('\tOutput Directory not set, using current working directory')
-                    outpath = os.getcwd() + "\\Reports"
+                    outpath = os.getcwd() + "\\output"
                 else:
                     outpath = value
 
@@ -315,7 +317,7 @@ def folderCheck(outdir, targdir, bulk=False):
                 value = config.get('Windows-Settings', 'target')
                 if value == "":
                     print('\tTarget directory not set, using current working directory')
-                    target = os.getcwd() + "\\Target"
+                    target = os.getcwd() + "\\target"
                 else:
                     target = value
 
@@ -644,7 +646,8 @@ def listdevices(andplatformtools, verbose, count=False):
     :return:
     '''
     output = subprocess.Popen(andplatformtools + "\\adb.exe devices -l", shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    time.sleep(2) #give Popen time to return
+    output.wait() #give Popen time to return
+
     results = []
     for line in output.stdout.readlines():
         results.append(line.decode("ASCII"))
@@ -678,11 +681,22 @@ def gettouchedfiles(andplatformtools, verbose):
 
     return list
 
+# http://stackoverflow.com/questions/17190031/python-subprocess-wait-for-command-to-finish-before-starting-next-one
+def call_subprocess(cmd, verbose):
+    proc = subprocess.Popen(cmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = proc.communicate()
+    if verbose > 0 and err:
+        print("\t\t" + err.decode("ASCII").rstrip())
+
+
 def processfiles(filelist, andplatformtools, avdname, verbose):
     global outpath
 
 
-    savefilesdir = os.path.join(outpath, avdname) + "\\touched_files"
+    savefilesdir = outpath + "\\" + avdname + "\\touched_files"
+
+    if verbose > 1:
+        print("Saving files to: " + savefilesdir)
 
     #create directory to save files
     if not os.path.isdir(os.path.join(outpath, avdname)):
@@ -700,10 +714,9 @@ def processfiles(filelist, andplatformtools, avdname, verbose):
     for file in filelist:
         filename = file.split("/")[-1]
         adbpullcmd = andplatformtools + "\\adb pull " + file + " " + savefilesdir
-        output = subprocess.Popen(adbpullcmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        if verbose > 0:
-            for line in output.stdout.readlines():
-                print("\t\t" + line.decode("ASCII").rstrip())
+        thread = Thread(target=call_subprocess, args=[adbpullcmd, verbose])
+        thread.start()
+        thread.join() # waits for completion.
         with open(hashfile, 'a') as hash:
             hash.write(virt.sha256sum(os.path.join(savefilesdir, filename)) + "\t\t" + file + "\n")
 
@@ -755,16 +768,9 @@ def testavd(args):
         verbose = args.verbose
 
     testConfig(args.config)
-    folderCheck(True, True)
-
-    tempdir = outpath + "\\temp"
-    if not os.path.isdir(tempdir):
-        os.mkdir(tempdir)
+    folderCheck(True, False)
 
     depCheck(verbose)
-
-    print("[+] Starting up AVD Emulator")
-    print()
 
     #Read config.ini settings for AVD and SDCARD paramters
     config = parseConfig()
@@ -789,9 +795,12 @@ def testavd(args):
         print()
 
     if not args.manual: #if manual isn't specified args.apk must be set with -a
-        #TODO validate the specified apk path
+
         if not args.apk:
             print("[-] Error - Missing argument: You must specify -m or -a <apk path>")
+            sys.exit(1)
+        elif not os.path.exists(args.apk):
+            print("[-] Error - The specified APK could not be found")
             sys.exit(1)
 
         if not args.name: #if -n wasn't used to specify name, use the name of the apk file
@@ -810,19 +819,23 @@ def testavd(args):
     if not os.path.isdir(os.path.join(outpath, avdname)):
         os.mkdir(os.path.join(outpath, avdname))  # %OUTPATH%\<avdname>
 
+    #create temp directory
+    tempdir = outpath + "\\" + avdname + "\\temp"
+    if not os.path.isdir(tempdir):
+        os.mkdir(tempdir)
+
+    print("[+] Starting up AVD Emulator")
+    print()
 
     print("\t\tAVD Name set to: " + avdname)
     print("\t\tSDCard Name set to: " + sdname)
     print("\t\tTemporary folder: " + tempdir)
-
-
 
     #convert runtime to float
     try:
         runtime = int(runtime)
     except:
         print("[-] Error: Not able to read android runtime from " + os.path.abspath(cfgfile))
-
 
     #Create AVD
     ## Command Construction
@@ -833,7 +846,8 @@ def testavd(args):
     print("\t[+] Creating AVD ")
     print("\t\tAVD Name: " + avdname)
 
-    #handle the interactive input from android.bat
+    #build the command in two steps
+    ## handle the interactive input from android.bat
     createcmd = "echo no | "
 
     createcmd += andsdktoolpath + "\\android.bat create avd -n " + avdname + " -t " + apiversion + " --abi " + andplatform + " -p " + tempdir + "\\avd"
@@ -932,7 +946,14 @@ def testavd(args):
 
     #set busybox with +x
     subprocess.call(andplatformtools + "\\adb shell chmod 755 /system/vendor/bin/busybox-i686")
+    '''
+    #Set phone date to Jan 1 2014
+    #datecmd = andplatformtools + "\\adb shell su 0 date -s 20140101.1300100"
 
+    #print()
+    #print("\t[+] Resetting date/time")
+    #subprocess.call(datecmd, shell=False)
+    '''
     if not args.manual:
 
         print()
@@ -979,6 +1000,8 @@ def testavd(args):
         print("\t\tPre-Install MD5:  " + prehash + " " + args.apk)
         print("\t\tPost-Install MD5: " + posthash.split()[0] + " " + posthash.split()[1])
 
+        #Set marker to indicate beginning of app test
+        setstartmarker(andplatformtools, verbose)
 
         print()
         print("\t[+] Launching App")
@@ -989,9 +1012,6 @@ def testavd(args):
             print("\t\tLaunch command: " + launchcmd)
 
         subprocess.Popen(launchcmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-
-        #Set marker to indicate beginning of app test
-        setstartmarker(andplatformtools, verbose)
 
         #Sleep for a period of time (runtime) while app is running
         print("\t\tRunning App for " + str(runtime) + " Seconds")
@@ -1034,8 +1054,6 @@ def testavd(args):
             stopavd = query_yes_no("Type 'yes' when you are done.\n\t\tAre you ready to kill the emulator?", "no")
 
         killavd(avdpid, avdname, sdname, tempdir, andsdktoolpath, verbose)
-
-
 
 
 
