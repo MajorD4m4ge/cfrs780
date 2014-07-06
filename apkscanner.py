@@ -21,6 +21,7 @@ import json
 import logging
 import time
 import mainintent as mi
+import hashlib
 
 
 #Global Values
@@ -31,6 +32,18 @@ outpath = ""  #set by config.ini or command-line argument
 target = ""   #set by config.ini or command-line argument
 system = platform.platform()
 architecture = platform.architecture()[0]
+
+
+def md5sum(filename):
+
+    with open(filename, 'rb') as f:
+        m = hashlib.md5()
+        while True:
+            data = f.read(8192)
+            if not data:
+                break
+            m.update(data)
+        return m.hexdigest()
 
 def unzip(apkfile):
     global target
@@ -671,8 +684,6 @@ def processfiles(filelist, andplatformtools, avdname, verbose):
 
     savefilesdir = os.path.join(outpath, avdname) + "\\touched_files"
 
-
-
     #create directory to save files
     if not os.path.isdir(os.path.join(outpath, avdname)):
         os.mkdir(os.path.join(outpath, avdname))  # %OUTPATH%\<avdname>
@@ -693,6 +704,35 @@ def processfiles(filelist, andplatformtools, avdname, verbose):
         with open(hashfile, 'a') as hash:
             hash.write(virt.sha256sum(os.path.join(savefilesdir, filename)) + "\t\t" + file + "\n")
 
+def installapk(andplatformtools, apkfile, verbose):
+    print()
+    print("\t[+] Installing APK")
+
+    installcmd = andplatformtools + "\\adb install " + "\"" + apkfile + "\""
+
+    if verbose > 1:
+        print("\t\tInstall APK Command: " + installcmd)
+
+    subprocess.call(installcmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+
+def getinstallpath(andplatformtools, package, verbose):
+    #find the installed apk on the device in the /data/app directory
+    #file will be named with the package name + the version .apk
+    #search /data/app and grep the package name
+    print()
+    print("[+] Looking for installed APK file")
+    lscmd = andplatformtools + "\\adb shell ls /data/app | /system/vendor/bin/busybox-i686 grep -i " + package
+
+    resultb = subprocess.Popen(lscmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+    resultStr = resultb.stdout.read().decode("ASCII").rstrip()
+
+    if package not in resultStr:
+        print("\t\tInstalled APK not found in /data/app")
+        return ''
+    else:
+        return "/data/app/" + resultStr
 
 
 
@@ -710,46 +750,18 @@ def testavd(args):
 
     testConfig(args.config)
     folderCheck(True, True)
+
     tempdir = target + "\\temp"
+    if not os.path.isdir(tempdir):
+        os.mkdir(tempdir)
+
+    depCheck(verbose)
 
     print("[+] Starting up AVD Emulator")
     print()
 
-    depCheck(verbose)
-
     #Read config.ini settings for AVD and SDCARD paramters
     config = parseConfig()
-
-    #Prepare AVD Settings
-    if verbose > 0:
-        print("\t[+] AVD and SDCARD Settings")
-        for key in config['android']:
-            print("\t\t" + str(key) + "\tValue: " + config.get('android', key))
-
-
-    #Replace periods and spaces in the APK file name. This will handle bad path conditions where a space exists in the
-    # file name
-    '''apkfile = ''
-    if args.apk:
-        apkfile = os.path.basename(args.apk).replace('.','-')
-        apkfile = apkfile.replace(' ', '-')
-    '''
-
-    if not args.name:
-        avdname = "testavd_" + args.apk.split("\\")[-1].replace('.', '-') #remove periods
-        avdname = avdname.replace(' ', '-') #remove spaces
-    else:
-        avdname = args.name
-
-    sdname = avdname + "_sdcard.img"
-
-
-    print("\t\tAVD Name set to: " + avdname)
-    print("\t\tSDCard Name set to: " + sdname)
-
-    if not os.path.isdir(tempdir):
-        os.mkdir(tempdir)
-    print("\t\tFiles placed in " + tempdir)
 
     #Read Andoird Settings from config.ini
     andsdktoolpath = config.get('Windows-Tools', 'andsdktools')
@@ -761,33 +773,45 @@ def testavd(args):
     runtime = config.get('android', 'runtime')
     busybox = config.get('Windows-Tools', 'busybox')
 
+    #start adb running, if it isn't already
+    subprocess.call(andplatformtools + "\\adb devices", shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+    if verbose > 0:
+        print("\t[+] Android settings from config.ini")
+        for key in config['android']:
+            print("\t\t" + str(key) + "\tValue: " + config.get('android', key))
+
+    if not args.manual: #if manual isn't specified args.apk must be set with -a
+        #TODO validate the specified apk path
+
+        if not args.name: #if -n wasn't used to specify name, use the name of the apk file
+            avdname = "testavd_" + args.apk.split("\\")[-1].replace('.', '-') #remove periods
+            avdname = avdname.replace(' ', '-') #remove spaces
+        else:
+            avdname = args.name
+    elif not args.name:
+        avdname = "testavd_Manual"  #-m is set, but -n (name of avd) is not set
+    else:
+        avdname = args.name #-m and -n are set
+
+    sdname = avdname + "_sdcard.img"
+
+    #create output directory specific to this avd
+    if not os.path.isdir(os.path.join(outpath, avdname)):
+        os.mkdir(os.path.join(outpath, avdname))  # %OUTPATH%\<avdname>
+
+
+    print("\t\tAVD Name set to: " + avdname)
+    print("\t\tSDCard Name set to: " + sdname)
+    print("\t\tTemporary folder: " + tempdir)
+
+
+
     #convert runtime to float
     try:
         runtime = int(runtime)
     except:
         print("[-] Error: Not able to read android runtime from " + os.path.abspath(cfgfile))
-
-    #Get MainIntent from Target App
-    ## args.apk holds the apk file path
-    ## use mainintents.py
-    ## mainintent.py requires an extracted apk folder
-    ## the apk must be decoded by apktool before it can be parsed by mainintent
-    ## Usage for apktool:
-    ##  Usage: apktool [-q|--quiet OR -v|--verbose] COMMAND [...]
-    ##
-    ##  COMMANDs are:
-    ##
-    ##  d[ecode] [OPTS] <file.apk> [<dir>]
-    ##    Decode <file.apk> to <dir>.
-
-    print()
-    print("\t[+] Decoding APK ")
-
-    decodedapk = decodeapk(args.apk, verbose)
-
-    package, mainact = mi.printmainintent(decodedapk)
-    mainintent = package + "/" + mainact
-    print("\t\tMainintent: " + mainintent)
 
 
     #Create AVD
@@ -815,12 +839,11 @@ def testavd(args):
     ## F:\School\Tools\ADTBundle\sdk\tools\mksdcard -l cfrs 1024M avdimage.img
     print()
     print("\t[+] Creating SD Card Image ")
-    mksdcmd = andsdktoolpath + "\\mksdcard -l " + avdname[:-3] + " " + sdcardsize + " " + os.path.join(tempdir, sdname)
+    mksdcmd = andsdktoolpath + "\\mksdcard -l " + avdname + " " + sdcardsize + " " + os.path.join(tempdir, sdname)
     if verbose > 1:
         print("\t\tCreate SD Command: " + mksdcmd)
 
     subprocess.call(mksdcmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-
 
     #Start AVD
     ## Command Construction
@@ -831,6 +854,12 @@ def testavd(args):
     print("\t[+] Starting Emulator ")
     startcmd = andsdktoolpath + "\\emulator-x86.exe -avd " + avdname + " -partition-size " + partsize + " -noaudio "
     startcmd += "-no-snapshot -sdcard " + os.path.join(tempdir, sdname)
+
+    if args.tcpdump:
+        startcmd += " -tcpdump " + os.path.join(outpath, avdname) + "\\netdump.pcap"
+
+    if args.proxy:
+        startcmd += " -http-proxy " + args.proxy
 
     if verbose > 1:
         print("\t\tStart AVD command: " + startcmd)
@@ -843,7 +872,7 @@ def testavd(args):
     #Sleep until the device shows up in the adb devices list and is online
     devcount = listdevices(andplatformtools, verbose, count=True)
     retries = 1
-    while devcount < 1 and retries < 4:
+    while devcount < 1 and retries < 6:
         time.sleep(10)
         devcount = listdevices(andplatformtools, verbose, count=True)
         if devcount == 0:
@@ -858,63 +887,86 @@ def testavd(args):
                 print("\t\tEmulator ready.")
         retries += 1
 
-    if retries == 4:
+    if retries == 6: #if the device doesn't show up in the list afte 60 seconds (5 retries) then exit
         print("Unable to locate the emulator using \"adb devices -l\". Exiting...")
         killavd(avdpid, avdname, sdname, tempdir, andsdktoolpath, verbose)
         sys.exit(1)
 
+    print()
+    print("[+] Preparing Emulator For Testing")
 
+    #Remount emulator file system
+    print()
+    print("\t[+] Remounting Filesystem to Read/Write")
+
+    remountcmd = andplatformtools + "\\adb shell mount -o rw,remount -t yaffs2 /dev/block/mtdblock0 /system"
+    if verbose > 1:
+        print("\t\tRemount Command: " + remountcmd)
+
+    subprocess.call(remountcmd, shell=False)
+
+    # Push busybox
+    ## make directory /system/vendor/bin
+    print()
+    print("\t[+] Pushing Busybox")
+
+    mkdircmd = andplatformtools + "\\adb shell mkdir -p /system/vendor/bin"
+    subprocess.call(mkdircmd, shell=False)
+
+    pushcmd = andplatformtools + "\\adb push " + busybox + " /system/vendor/bin"
+
+    if verbose > 1:
+        print("\t\tPush busybox command: " + pushcmd)
+
+    subprocess.call(pushcmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+    #set busybox with +x
+    subprocess.call(andplatformtools + "\\adb shell chmod 755 /system/vendor/bin/busybox-i686")
 
     if not args.manual:
 
-        ## Identify which emulator the user wishes to use
-        ##devicename = getemulator(andplatformtools, verbose)
-
-        #Remount emulator file system
-        #TODO
         print()
-        print("\t[+] Remounting Filesystem to Read/Write")
+        print("[+] Preparing App For Launch")
+        time.sleep(2)
 
-        remountcmd = andplatformtools + "\\adb shell mount -o rw,remount -t yaffs2 /dev/block/mtdblock0 /system"
-        if verbose > 1:
-            print("Remount Command: " + remountcmd)
-
-        subprocess.call(remountcmd, shell=False)
-
-
-        # Push busybox
-        ## make directory /system/vendor/bin
-
-        print()
-        print("\t[+] Pushing Busybox")
-
-        mkdircmd = andplatformtools + "\\adb shell mkdir -p /system/vendor/bin"
-        subprocess.call(mkdircmd, shell=False)
-
-        pushcmd = andplatformtools + "\\adb push " + busybox + " /system/vendor/bin"
-
-        if verbose > 1:
-            print("Push busybox command: " + pushcmd)
-
-        subprocess.call(pushcmd, shell=False)
-
-        #set busybox with +x
-        subprocess.call(andplatformtools + "\\adb shell chmod 755 /system/vendor/bin/busybox-i686")
-
-
-        # Install and Launch App
-        ##TODO
+        #Get MainIntent from Target App
+        ## args.apk holds the apk file path
+        ## use mainintents.py
+        ## mainintent.py requires an extracted apk folder
+        ## the apk must be decoded by apktool before it can be parsed by mainintent
+        ## Usage for apktool:
+        ##  Usage: apktool [-q|--quiet OR -v|--verbose] COMMAND [...]
         ##
+        ##  COMMANDs are:
+        ##
+        ##  d[ecode] [OPTS] <file.apk> [<dir>]
+        ##    Decode <file.apk> to <dir>.
         print()
-        print("\t[+] Installing APK")
+        print("\t[+] Decoding APK ")
 
-        installcmd = andplatformtools + "\\adb install " + "\"" + args.apk + "\""
+        decodedapk = decodeapk(args.apk, verbose)
 
-        if verbose > 1:
-            print("Install APK Command: " + installcmd)
+        package, mainact = mi.printmainintent(decodedapk)
+        mainintent = package + "/" + mainact
+        print("\t\tPackage: " + package)
+        print("\t\tMain Activity: " + mainact)
 
-        subprocess.call(installcmd, shell=False)
+        ## Hash APK file before installing
+        prehash = md5sum(args.apk)
 
+        #Install the APK. Function returns the path of the installed file
+        installapk(andplatformtools, args.apk, verbose)
+
+        #find the installed apk on the device in the /data/app directory
+        #file will be named with the package name + the version .apk
+        #search /data/app and grep the package name
+        installpath = getinstallpath(andplatformtools, package, verbose)
+
+        hashcmd = andplatformtools + "\\adb shell md5 " + installpath
+
+        posthash = subprocess.Popen(hashcmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        for line in posthash.stdout.readlines():
+            print("\t\t\t" + line.decode("ASCII").rstrip())
 
         print()
         print("\t[+] Launching App")
@@ -924,21 +976,30 @@ def testavd(args):
         if verbose > 1:
             print("\t\tLaunch command: " + launchcmd)
 
-        subprocess.call(launchcmd, shell=False)
+        subprocess.Popen(launchcmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
         #Set marker to indicate beginning of app test
         setstartmarker(andplatformtools, verbose)
 
         #Sleep for a period of time (runtime) while app is running
         print("\t\tRunning APK for " + str(runtime) + " Seconds")
-        time.sleep(runtime)
+        fullrun = True
+        try:
+            time.sleep(runtime)
+        except KeyboardInterrupt:
+            fullrun = False
 
-        print()
-        print("\t[+] Run time expired. Searching for touched files...")
-        #get list of files touched since the start marker was set
-        filelist = gettouchedfiles(andplatformtools, verbose)
+        if fullrun:
+            print()
+            print("\t[+] Run time expired. Searching for touched files...")
+            #get list of files touched since the start marker was set
+            filelist = gettouchedfiles(andplatformtools, verbose)
+        else:
+            print()
+            print("\t[+] User cancelled run time. Searching for touched files...")
+            #get list of files touched since the start marker was set
+            filelist = gettouchedfiles(andplatformtools, verbose)
 
-        print("\t\tFile list found. ")
         if verbose > 0:
             for file in filelist:
                 print("\t\t\t" + file)
@@ -1016,6 +1077,8 @@ def main(argv):
     #testavd command
     parser_testavd = subparsers.add_parser('testavd')
     #TODO
+    parser_testavd.add_argument('--proxy', help="Enable TCP Proxy at the specified IP:Port", metavar="IP:PORT", required=False)
+    parser_testavd.add_argument('--tcpdump', help="Dump network traffic to pcap file", action='store_true', required=False)
     parser_testavd.add_argument('-m', '--manual', help="Create and start the emulator only", action='store_true', required=False)
     parser_testavd.add_argument('-c', '--config', help="Specify alternative config.ini file", metavar="PATH", required=False)
     parser_testavd.add_argument('-n', '--name', help="Specify the name for the AVD file", required=False)
