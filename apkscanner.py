@@ -10,14 +10,14 @@ import sys
 from os import path
 from threading import Thread
 import os
-import platform     #https://docs.python.org/2/library/platform.html
-import configparser #https://docs.python.org/2/library/configparser.html
-import argparse     #http://docs.python.org/3.4/library/argparse.html
+import platform     # https://docs.python.org/2/library/platform.html
+import configparser # https://docs.python.org/2/library/configparser.html
+import argparse     # http://docs.python.org/3.4/library/argparse.html
 import re
 import socket
 import subprocess
 import zipfile
-import virt         #https://github.com/subbyte/virustotal/blob/master/virt.py
+import virt         # https://github.com/subbyte/virustotal/blob/master/virt.py
 import json
 import logging
 import time
@@ -27,12 +27,12 @@ import hashlib
 
 
 #Global Values
-VERSION = '1.1'
+VERSION = '1.0'
 MAX_PATH = 260
 cfgfile = "config.ini"
 config = None
-outpath = ""  #set by config.ini or command-line argument
-target = ""   #set by config.ini or command-line argument
+outpath = ""  # set by config.ini or command-line argument
+target = ""   # set by config.ini or command-line argument
 system = platform.platform()
 architecture = platform.architecture()[0]
 
@@ -130,19 +130,19 @@ def findURLs():
             dest.write("\nPattern: " + key + ": " + pattern + "\n\n")
             for root, subs, files in os.walk(target):
                 for file in files:
-                    lineCnt = 1
-                    print("Reading file: " + os.path.join(root,file))
-                    with open(os.path.join(root,file), 'rb') as f:
+                    linecnt = 1
+                    print("Reading file: " + os.path.join(root, file))
+                    with open(os.path.join(root, file), 'rb') as f:
                         for line in f.readlines():
                             #print(line)
                             match = re.search(pattern, str(line))
                             if(match):
-                                #print(f.name + ": Line " + str(lineCnt) + ", Offset " + str(match.start()) + ": " + match.group())
-                                dest.write(f.name + ": Line " + str(lineCnt) + ", Offset " + str(match.start()) + ": " + match.group()+"\r\n")
-                            lineCnt += 1
+                                # print(f.name + ": Line " + str(linecnt) + ", Offset " + str(match.start()) + ": " + match.group())
+                                dest.write(f.name + ": Line " + str(linecnt) + ", Offset " + str(match.start()) + ": " + match.group()+"\r\n")
+                            linecnt += 1
                     f.close()
 
-def valid_ip(address): #http://stackoverflow.com/questions/11264005/using-a-regex-to-match-ip-addresses-in-python
+def valid_ip(address):  # http://stackoverflow.com/questions/11264005/using-a-regex-to-match-ip-addresses-in-python
     try:
         socket.inet_aton(address)
         return True
@@ -646,18 +646,18 @@ def listdevices(andplatformtools, verbose, count=False):
     :return:
     '''
     output = subprocess.Popen(andplatformtools + "\\adb.exe devices -l", shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    output.wait() #give Popen time to return
+    output.wait() # give Popen time to return
 
     results = []
     for line in output.stdout.readlines():
         results.append(line.decode("ASCII"))
 
     if count:
-        return len(results) - 2 #if no devices are present, the list length is 2 lines. Subtract 2
+        return len(results) - 2 # if no devices are present, the list length is 2 lines. Subtract 2
     else:
         if verbose > 1:
             print("\t\tResults list \n\t\t\t" + str(results[1:]))
-        return results[1:] #do not include the heading and blank line
+        return results[1:] # do not include the heading and blank line
 
 def setstartmarker(andplatformtools, verbose):
 
@@ -708,8 +708,7 @@ def processfiles(filelist, andplatformtools, avdname, verbose):
     hashfile = savefilesdir + "\\hashes.txt"
 
     if not os.path.exists(hashfile):
-        open(hashfile, 'w').close() #create hashes.txt for future writing
-
+        open(hashfile, 'w').close() # create hashes.txt for future writing
 
     for file in filelist:
         filename = file.split("/")[-1]
@@ -720,7 +719,9 @@ def processfiles(filelist, andplatformtools, avdname, verbose):
         with open(hashfile, 'a') as hash:
             hash.write(virt.sha256sum(os.path.join(savefilesdir, filename)) + "\t\t" + file + "\n")
 
+
 def installapk(andplatformtools, apkfile, verbose):
+
     print()
     print("\t[+] Installing APK")
 
@@ -749,9 +750,8 @@ def getinstallpath(andplatformtools, package, verbose):
         return ''
     else:
         if verbose > 0:
-            print("\t\tFound APK in /data/app" + resultStr)
+            print("\t\tFound APK in /data/app/" + resultStr)
         return "/data/app/" + resultStr
-
 
 
 def testavd(args):
@@ -772,10 +772,10 @@ def testavd(args):
 
     depCheck(verbose)
 
-    #Read config.ini settings for AVD and SDCARD paramters
+    #Read config.ini settings for AVD and SDCARD parameters
     config = parseConfig()
 
-    #Read Andoird Settings from config.ini
+    #Read Android Settings from config.ini
     andsdktoolpath = config.get('Windows-Tools', 'andsdktools')
     andplatformtools = config.get('Windows-Tools', 'andplatformtools')
     apiversion = config.get('android', 'apiversion')
@@ -803,15 +803,15 @@ def testavd(args):
             print("[-] Error - The specified APK could not be found")
             sys.exit(1)
 
-        if not args.name: #if -n wasn't used to specify name, use the name of the apk file
-            avdname = "testavd_" + args.apk.split("\\")[-1].replace('.', '-') #remove periods
-            avdname = avdname.replace(' ', '-') #remove spaces
+        if not args.name:  # if -n wasn't used to specify name, use the name of the apk file
+            avdname = "testavd_" + args.apk.split("\\")[-1].replace('.', '-')  # remove periods
+            avdname = avdname.replace(' ', '-')  # remove spaces
         else:
             avdname = args.name
     elif not args.name:
-        avdname = "testavd_Manual"  #-m is set, but -n (name of avd) is not set
+        avdname = "testavd_Manual"   # -m is set, but -n (name of avd) is not set
     else:
-        avdname = args.name #-m and -n are set
+        avdname = args.name  # -m and -n are set
 
     sdname = avdname + "_sdcard.img"
 
@@ -1110,11 +1110,7 @@ def main(argv):
     parser_testavd.add_argument('-m', '--manual', help="Create and start the emulator only", action='store_true', required=False)
     parser_testavd.add_argument('-c', '--config', help="Specify alternative config.ini file", metavar="PATH", required=False)
     parser_testavd.add_argument('-n', '--name', help="Specify the name for the AVD file", required=False)
-    parser_testavd.add_argument('-s', '--size', help="Size of the SD Card (Default is 1024)", required=False)
     parser_testavd.add_argument('-a', '--apk', help="APK File to load and test", metavar='PATH', required=False)
-    parser_testavd.add_argument('-t', '--timeout', help="Kill AVD process after -t seconds (Default 30)", metavar='SECONDS', required=False)
-    parser_testavd.add_argument('-p', '--package', help="Package name of APK", metavar='NAME', required=False)
-    parser_testavd.add_argument('-i', '--intent', help="Main intent of APK", metavar='NAME', required=False)
     parser_testavd.add_argument('-v', '--verbose', help="The level of debugging", type=int)
     parser_testavd.set_defaults(func=testavd)
 
