@@ -1207,6 +1207,17 @@ def fullscan(args):
     vtScan(args, dofullscan=True)
     testavd(args, dofullscan=True, decodedpath=decodedpath)
 
+
+def getapkpermissions(aaptpath, apk, verbose):
+    aaptcmd = aaptpath + "\\aapt.exe dump permissions " + apk
+    proc = subprocess.Popen(aaptcmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    result = []
+    for line in proc.stdout.readlines():
+        result.append(line.decode("ASCII").rstrip())
+
+    return result
+
+
 def pullandscan(args):
     global config
     global outpath
@@ -1217,6 +1228,7 @@ def pullandscan(args):
             outpath = args.output
 
     folderCheck(outdir=True, targdir=False)
+    print()
 
     verbose = 0
     if args.verbose:
@@ -1225,34 +1237,41 @@ def pullandscan(args):
     andplatformtools = config.get('Windows-Tools', 'andplatformtools')
     aaptpath = config.get('Windows-Tools', 'buildtools17')
 
+    # verify adb can connect to a device
+    #Sleep until the device shows up in the adb devices list and is online
+    devcount = listdevices(andplatformtools, verbose, count=True)
+    retries = 1
+    while devcount < 1 and retries < 5:
+        time.sleep(5)
+        devcount = listdevices(andplatformtools, verbose, count=True)
+        if devcount == 0:
+            print("No emulators found...Retry in 5 seconds")
+            retries += 1
+        elif devcount > 0:
+            devlist = listdevices(andplatformtools, verbose)
+            if 'offline' in devlist[0]:  # if the device is found but still offline, reset devcount to 0 to retry
+                print('\tEmulator started but not online. Waiting...')
+                devcount = 0
+            else:
+                print("\tEmulator ready.")
+
+    if retries == 5:
+        print("Error: Could not find an active device. Exiting...")
+        sys.exit(1)
+
+    if devcount > 1:
+        print()
+        print("Error: Pull and Scan will not function if multiple"
+              "\n\temulators are active. Please make sure only one "
+              "\n\temulator is running and try again.")
+        sys.exit(1)
+
     print()
     print("[+] Beginning Pull and Scan Processing")
     starttime = time.asctime()
     print("\tStart Time: " + starttime)
 
-    # verify adb can connect to a device
-    #Sleep until the device shows up in the adb devices list and is online
-    devcount = listdevices(andplatformtools, verbose, count=True)
-    retries = 1
-    while devcount < 1 and retries < 6:
-        time.sleep(5)
-        devcount = listdevices(andplatformtools, verbose, count=True)
-        if devcount == 0:
-            print("\t\tNo emulators found...Retry in 5 seconds")
-            retries += 1
-        elif devcount > 0:
-            list = listdevices(andplatformtools, verbose)
-            if 'offline' in list[0]:  #if the device is found but still offline, reset devcount to 0 to retry
-                print('\t\tEmulator started but not online. Waiting...')
-                print()
-                devcount = 0
-            else:
-                print("\t\tEmulator ready.")
-
-    if retries == 6:
-        print("Error: No device active. Exiting...")
-        sys.exit(1)
-
+    print()
     print("[+] Searching device for installed apps")
     # list apks on device /data/app
     apklist = getapklist(andplatformtools, verbose)
@@ -1317,21 +1336,31 @@ def pullandscan(args):
     print("[+] Initiating Actionable Intel Scan")
     # for each apk, search actionable info and get VT report
     vtreps = {}
+    perms = {}
     for apkfile in scanlist:
         apkname = os.path.basename(apkfile).replace('.', '-')
         apkname = apkname.replace(' ', '-')
         print()
         print("[+] Begin Scan: " + os.path.basename(apkfile))
-        decodedpath = decodeapk(apkfile, apkname, verbose)
-        bulkScan(apkname, decodedpath, verbose)
-        findIPs(apkname, decodedpath, verbose)
-        findURLs(apkname, decodedpath, verbose)
-        findOther(apkname, decodedpath, verbose)
-        vtreps[os.path.basename(apkfile)] = vtScan(args, dopullandscan=True, apkfile=apkfile)
+        print("\tPermissions: ")
+        perms[os.path.basename(apkfile)] = getapkpermissions(aaptpath, apkfile, verbose)
+        for line in perms.get(os.path.basename(apkfile)):  # print permissions
+            print("\t\t" + line)
+        vtreps[os.path.basename(apkfile)] = vtScan(args, dopullandscan=True, apkfile=apkfile)  # get VT report
+        print()
+        print("[+] Decoding APK with APKTOOL")
+        decodedpath = decodeapk(apkfile, apkname, verbose)  # run apktool on apk and extract
+        bulkScan(apkname, decodedpath, verbose)  # run bulk extractor on decoded apk folder
+        findIPs(apkname, decodedpath, verbose)  # run IP regex search on decoded apk folder
+        findURLs(apkname, decodedpath, verbose)  # run URL regex search on decoded apk folder
+        findOther(apkname, decodedpath, verbose)  # run remaining searches from config.ini on decoded apk folder
+
 
     print()
     print("[+] Processing Complete")
     endtime = time.asctime()
+    print("\tEnd Time: " + endtime)
+    print()
     print("\tGenerating HTML Report...")
 
     #create HTML file and write header
@@ -1427,11 +1456,9 @@ def pullandscan(args):
                    "</tr>")
 
         for apk in scanlist:
-            aaptcmd = aaptpath + "\\aapt.exe dump permissions " + apk
-            result = subprocess.Popen(aaptcmd, shell=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             permissions = ""
-            for line in result.stdout.readlines():
-                permissions += line.decode("ASCII").rstrip() + "<br>"
+            for line in perms.get(os.path.basename(apk)):
+                permissions += line + "<br>"
             html.write("<tr>"
                        "<td> " + os.path.basename(apk) + " </td>"
                        "<td> " + permissions + " </td>"
