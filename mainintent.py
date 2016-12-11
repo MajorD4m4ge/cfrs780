@@ -41,7 +41,7 @@ def Header():
     print('+--------------------------------------------------------------------------+')
     print('|Main Intent from AndroidManifest.XML                                      |')
     print('+---------------------------------------------------------------------------')
-    print('|Author: Tahir Khan - tkhan9@gmu.edu                                       |')
+    print('|Author: Tahir Khan                                       |')
     print('|Code borrowed from - http://www.bulbsecurity.com                          |')
     print('+--------------------------------------------------------------------------+')
     print('  Date Run: ' + str(datetime.datetime.now()))
